@@ -1,11 +1,12 @@
 CC=gcc
-SRC=server.c
+SRC=server.cpp
 OBJ=server
+CCFLAGS=-Wall --std=c++17
 
 all: $(OBJ)
 
 proxy: $(SRC)
-	$(CC) $< -o $@
+	$(CC) $(CCFLAGS) $< -o $@
 
 clean:
 	rm -rf $(OBJ)
