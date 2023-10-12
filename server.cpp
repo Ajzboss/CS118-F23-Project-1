@@ -139,7 +139,7 @@ void handle_request(struct server_app *app, int client_socket) {
 
     buffer[bytes_read] = '\0';
     // copy buffer to a new string
-    char *request = malloc(strlen(buffer) + 1);
+    char *request = (char *)malloc(strlen(buffer) + 1);
     strcpy(request, buffer);
 
     // TODO: Parse the header and extract essential fields, e.g. file name
