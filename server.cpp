@@ -19,6 +19,7 @@
 #include <fstream>
 #include <sstream>
 #include <ctime>
+#include <regex>
 
 namespace fs = std::filesystem;
 
@@ -57,8 +58,7 @@ enum filetype {
     ft_other,
 };
 
-
-// TODO: get extension
+filetype determine_filetype(std::string path);
 
 /* Main function is provided */
 int main(int argc, char *argv[]) {
@@ -165,8 +165,6 @@ void handle_request(struct server_app *app, int client_socket) {
     // char *request_cstr = (char *)malloc(strlen(buffer) + 1);
     // strcpy(request_cstr, buffer);
     std::string request(buffer, strlen(buffer) + 1);
-    // TODO: get rid of this
-    fprintf(stderr, "%s", request.c_str());
     const size_t n = request.size();
 
     /*
@@ -193,12 +191,11 @@ void handle_request(struct server_app *app, int client_socket) {
     while (j < n && request[j] != ' ' && request[j] != '\r' && request[j] != '\n') {
         j++;
     }
-    // TODO: uri_decode
-    std::string requested_path = request.substr(i, j);
+    std::string requested_path = uri_decode(request.substr(i, j - i));
 
     // serve index.html if root is requested
     if (requested_path == "/") {
-        requested_path = "index.html";
+        requested_path = "/index.html";
     }
 
     // TODO: Implement proxy and call the function under condition
@@ -211,24 +208,15 @@ void handle_request(struct server_app *app, int client_socket) {
 }
 
 void serve_local_file(int client_socket, std::string path) {
-    // TODO: Properly implement serving of local files
-    // The following code returns a dummy response for all requests
-    // but it should give you a rough idea about what a proper response looks like
-    // What you need to do 
-    // (when the requested file exists):
-    // * Open the requested file
-    // * Build proper response headers (see details in the spec), and send them
-    // * Also send file content
-    // (When the requested file does not exist):
-    // * Generate a correct response
-
-    // build response using vector
+    // build response using a stream
     std::stringstream response_stream;
 
-    // NOTE: per the spec, we are not recursively searching cur dir
-    // TODO: per piazza @71, all file paths start with a / anything special to be done here?
+    // Per piazza @71, all file paths start with a /
+    // so remove the first character
+    path = path.substr(1);
 
     // search for path in current directory
+    // NOTE: per the spec, we are not recursively searching cur dir
     const fs::path cur_dir = fs::current_path();
     bool file_found = false;
 
@@ -255,7 +243,7 @@ void serve_local_file(int client_socket, std::string path) {
 
             // extract content type
             // reference: https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Common_types
-            filetype ftype = determine_ftype(path);
+            filetype ftype = determine_filetype(path);
             std::string content_type;
             switch (ftype) {
                 case ft_html:
@@ -288,13 +276,14 @@ void serve_local_file(int client_socket, std::string path) {
             response_stream << "Date: " << current_http_date() << "\r\n";
             response_stream << "Content-Length: 0\r\n";
             response_stream << "Connection: close\r\n";
-            fprintf(stderr, "Requested un-openable file %s\n", path);
+            fprintf(stderr, "Requested un-openable file %s\n", path.c_str());
         }
     } else {
         response_stream << "HTTP/1.0 404 Not Found\r\n";
         response_stream << "Date: " << current_http_date() << "\r\n";
         response_stream << "Content-Length: 0\r\n";
         response_stream << "Connection: close\r\n";
+        fprintf(stderr, "Requested nonexistent file %s\n", path.c_str());
     }
 
     // convert to string
@@ -320,28 +309,33 @@ void proxy_remote_file(struct server_app *app, int client_socket, const char *re
 
 /* Utilities */
 
+// Adapted from: https://gist.github.com/arthurafarias/56fec2cd49a32f374c02d1df2b6c350f
+const std::regex PERCENT_ENCODING("%[0-9A-F]{2}");
+
 std::string uri_decode(std::string uri) {
     std::string output = "";
 
-    size_t i = 0;
-    size_t j = 0;
     size_t n = uri.size();
 
-    while (i < n && j < n) {
-        // just append when you don't see a URI encoding
-        if (uri[i] != '%') {
+    // whether or not this loop instance translated something
+    bool translated = false;
+    for (int i = 0; i < n - 2; i++) {
+        translated = false;
+        std::string next_3_chars = uri.substr(i, 3);
+        if (std::regex_match(next_3_chars, PERCENT_ENCODING)) {
+            // replace % symbol with 0x to convert from hex to int
+            next_3_chars.replace(0, 1, "0x");
+            char next = static_cast<char>(std::stoi(next_3_chars, nullptr, 16));
+            output.push_back(next);
+            i += 2;
+            translated = true;
+        } else {
             output.push_back(uri[i]);
-            i++;
         }
-        
-        j = ++i;
-        while (j < n && isdigit(uri[j])) {
-            j++;
-        }
+    }
 
-        // append encoding converted to char to output 
-        output.push_back('\0' + std::stoi(uri.substr(i, j)));
-        i = j;
+    if (!translated) {
+        output += uri.substr(n - 2);
     }
 
     return output;
@@ -363,15 +357,14 @@ std::string current_http_date() {
     return std::string(buffer);
 }
 
-filetype determine_ftype(std::string path) {
-    int j = path.size();
-    int i = j - 1;
+filetype determine_filetype(std::string path) {
+    int i = path.size() - 1;
 
     // get first '.'
     while (i >= 0 && path[i] != '.') {
         i--;
     }
-    std::string ext = path.substr(i + 1, j);
+    std::string ext = path.substr(i + 1);
 
     if (ext == "html" || ext == "htm") {
         return ft_html;
