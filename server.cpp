@@ -267,7 +267,8 @@ void serve_local_file(int client_socket, std::string path) {
             // CRLF before entity body
             response_stream << "\r\n";
 
-            // entity body
+            // entity body: we have to use .write() as if file_buf contains a null
+            // byte, it would just terminate the stream; .write() avoids this
             response_stream.write(file_buf.data(), file_buf.size());
 
         } else {
@@ -360,7 +361,7 @@ std::string current_http_date() {
 filetype determine_filetype(std::string path) {
     int i = path.size() - 1;
 
-    // get first '.'
+    // get first '.' from the end to determine file extension
     while (i >= 0 && path[i] != '.') {
         i--;
     }
