@@ -199,8 +199,8 @@ void handle_request(struct server_app *app, int client_socket) {
     if (requested_path == "/") {
         requested_path = "/index.html";
     }
-    std::cout<<"requested_path";
-    std::cout<<requested_path;
+    //std::cout<<"requested_path";
+    //std::cout<<requested_path;
     // TODO: Implement proxy and call the function under condition
     // specified in the spec
     if (requested_path.length() >= 3) {
@@ -309,7 +309,7 @@ void proxy_remote_file(struct server_app *app, int client_socket, const std::str
     // Bonus:
     // * When connection to the remote server fail, properly generate
     // HTTP 502 "Bad Gateway" response
-    std::cout<<"WBHFDOQHGFD)QO)\n";
+    //std::cout<<"WBHFDOQHGFD)QO)\n";
     const int PORT=DEFAULT_REMOTE_PORT;
     int client_fd, new_socket;
     const char *ipAddressStr = DEFAULT_REMOTE_HOST;
@@ -329,30 +329,42 @@ void proxy_remote_file(struct server_app *app, int client_socket, const std::str
     their_addr.sin_port = htons(PORT);
     inet_aton(ipAddressStr,&their_in_addr);
     their_addr.sin_addr = their_in_addr;
-    if(connect(client_fd, (struct sockaddr*) &their_addr, sizeof(struct sockaddr)) == -1) {
+    if(connect(client_fd, (struct sockaddr*) &their_addr, sizeof(struct sockaddr)) < 0) {
         perror ("connect");
+        close(client_fd);
         exit (1);
     }
     
-    std::cout<<"2\n";
-    if(write(client_fd,buffer,BUFFER_SIZE)<0){
+    //std::cout<<"2\n";
+    if(send(client_fd,buffer,strlen(buffer),0)<0){
         perror("write");
+        close(client_fd);
         exit(1);
     }
-    std::cout<<"2\n";
-    if(read(client_fd,buffer,BUFFER_SIZE)<0){
+    //std::cout<<"2\n";
+    if(recv(client_fd,buffer,strlen(buffer),MSG_PEEK)<0){
         perror("read");
+        close(client_fd);
+        exit(1);
+    }
+    std::cout<<"buffer\n";
+    std::cout<<buffer;
+    std::string httpRequestString(buffer);
+    size_t newlinePos = httpRequestString.find("\r\n\r\n");
+    std::string body = httpRequestString.substr(newlinePos + 4);
+    std::cout<<"body\n";
+    std::cout<<body;
+    //strcpy(buffer,body.c_str());
+    char response[] = "HTTP/1.0 501 Not Implemented\r\n\r\n";
+    if(send(client_socket, buffer, strlen(buffer), 0)<0){
+        perror("send");
+        close(client_fd);
         exit(1);
     }
     if(close(client_fd)<0){
         perror("close");
         exit(1);
     }
-
-    std::cout<<buffer;
-    
-    char response[] = "HTTP/1.0 501 Not Implemented\r\n\r\n";
-    send(client_socket, buffer, strlen(buffer), 0);
 }
 
 /* Utilities */
