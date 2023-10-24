@@ -20,7 +20,8 @@
 #include <sstream>
 #include <ctime>
 #include <regex>
-
+#include <iostream>
+#include <arpa/inet.h>
 namespace fs = std::filesystem;
 
 #define BUFFER_SIZE 1024
@@ -45,7 +46,7 @@ void parse_args(int argc, char *argv[], struct server_app *app);
 // server functions
 void handle_request(struct server_app *app, int client_socket);
 void serve_local_file(int client_socket, std::string path);
-void proxy_remote_file(struct server_app *app, int client_socket, const char *path);
+void proxy_remote_file(struct server_app *app, int client_socket, const std::string request);
 
 // Utilities
 std::string uri_decode(std::string uri);
@@ -176,6 +177,7 @@ void handle_request(struct server_app *app, int client_socket) {
     size_t i = 0, j = 0;
 
     // Extract the method
+    std::cout<<request;
     while (j < n && request[j] != ' ' && request[j] != '\r' && request[j] != '\n') {
         j++;
     }
@@ -197,16 +199,20 @@ void handle_request(struct server_app *app, int client_socket) {
     if (requested_path == "/") {
         requested_path = "/index.html";
     }
-
+    std::cout<<"requested_path";
+    std::cout<<requested_path;
     // TODO: Implement proxy and call the function under condition
     // specified in the spec
-    // if (need_proxy(...)) {
-    //    proxy_remote_file(app, client_socket, file_name);
-    // } else {
-    serve_local_file(client_socket, requested_path);
-    //}
+    if (requested_path.length() >= 3) {
+        if (requested_path.substr(requested_path.length() - 3, 3) == ".ts") {
+            proxy_remote_file(app, client_socket, request);
+        } else {
+            serve_local_file(client_socket, requested_path);
+        }
+    } else {
+        serve_local_file(client_socket, requested_path);
+    }
 }
-
 void serve_local_file(int client_socket, std::string path) {
     // build response using a stream
     std::stringstream response_stream;
@@ -294,7 +300,7 @@ void serve_local_file(int client_socket, std::string path) {
     send(client_socket, response.c_str(), size, 0);
 }
 
-void proxy_remote_file(struct server_app *app, int client_socket, const char *request) {
+void proxy_remote_file(struct server_app *app, int client_socket, const std::string request) {
     // TODO: Implement proxy request and replace the following code
     // What's needed:
     // * Connect to remote server (app->remote_server/app->remote_port)
@@ -303,9 +309,50 @@ void proxy_remote_file(struct server_app *app, int client_socket, const char *re
     // Bonus:
     // * When connection to the remote server fail, properly generate
     // HTTP 502 "Bad Gateway" response
+    std::cout<<"WBHFDOQHGFD)QO)\n";
+    const int PORT=DEFAULT_REMOTE_PORT;
+    int client_fd, new_socket;
+    const char *ipAddressStr = DEFAULT_REMOTE_HOST;
+    struct in_addr their_in_addr;
+    struct sockaddr_in my_addr; /* my address */
+    struct sockaddr_in their_addr; /* connector addr */ 
+    int sin_size;
+    char buffer[BUFFER_SIZE];
+    strcpy(buffer, request.c_str());
 
+
+    if ((client_fd = socket(PF_INET, SOCK_STREAM, 0)) == 0) {
+        perror("socket failed");
+        exit(EXIT_FAILURE);
+    }
+    their_addr.sin_family = AF_INET; /* interp’d by host */
+    their_addr.sin_port = htons(PORT);
+    inet_aton(ipAddressStr,&their_in_addr);
+    their_addr.sin_addr = their_in_addr;
+    if(connect(client_fd, (struct sockaddr*) &their_addr, sizeof(struct sockaddr)) == -1) {
+        perror ("connect");
+        exit (1);
+    }
+    
+    std::cout<<"2\n";
+    if(write(client_fd,buffer,BUFFER_SIZE)<0){
+        perror("write");
+        exit(1);
+    }
+    std::cout<<"2\n";
+    if(read(client_fd,buffer,BUFFER_SIZE)<0){
+        perror("read");
+        exit(1);
+    }
+    if(close(client_fd)<0){
+        perror("close");
+        exit(1);
+    }
+
+    std::cout<<buffer;
+    
     char response[] = "HTTP/1.0 501 Not Implemented\r\n\r\n";
-    send(client_socket, response, strlen(response), 0);
+    send(client_socket, buffer, strlen(buffer), 0);
 }
 
 /* Utilities */
