@@ -177,7 +177,7 @@ void handle_request(struct server_app *app, int client_socket) {
     size_t i = 0, j = 0;
 
     // Extract the method
-    std::cout<<request;
+    std::cout << request << std::endl;;
     while (j < n && request[j] != ' ' && request[j] != '\r' && request[j] != '\n') {
         j++;
     }
@@ -310,50 +310,52 @@ void proxy_remote_file(struct server_app *app, int client_socket, const std::str
     // * When connection to the remote server fail, properly generate
     // HTTP 502 "Bad Gateway" response
     //std::cout<<"WBHFDOQHGFD)QO)\n";
-    
-    const int PORT= app->remote_port;
-    int client_fd, new_socket;
-    const char *ipAddressStr = app->remote_host;
-    struct in_addr their_in_addr;
-    struct sockaddr_in my_addr; /* my address */
-    struct sockaddr_in their_addr; /* connector addr */ 
-    int sin_size;
-    char buffer[BUFFER_SIZE];
-    char buffer2[BUFFER_SIZE];
-    strcpy(buffer, request.c_str());
 
-    if ((client_fd = socket(PF_INET, SOCK_STREAM, 0)) == 0) {
+    int remote_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if (remote_socket == -1) {
         perror("socket failed");
-        exit(EXIT_FAILURE);
+        exit(1); // TODO: exit_failure?
     }
 
-    their_addr.sin_family = AF_INET; 
-    their_addr.sin_port = htons(PORT);
-    inet_aton(ipAddressStr,&their_in_addr);
-    their_addr.sin_addr = their_in_addr;
+    struct sockaddr_in remote_server_addr;
 
-    if(connect(client_fd, (struct sockaddr*) &their_addr, sizeof(struct sockaddr)) < 0) {
+    remote_server_addr.sin_family = AF_INET;
+    remote_server_addr.sin_addr.s_addr = inet_addr(app->remote_host);
+    remote_server_addr.sin_port = htons(app->remote_port);
+
+    if(connect(remote_socket, (struct sockaddr*) &remote_server_addr, sizeof(remote_server_addr)) < 0) {
         perror ("connect");
-        close(client_fd);
-        exit (1);
+        close(remote_socket);
+        exit(1);
     }
     
-    if(send(client_fd,buffer,sizeof(buffer),0)< 0){
-        perror ("send");
-        close(client_fd);
+    if(send(remote_socket, request.c_str(), request.size(), 0)< 0){
+        perror("forward request");
+        close(remote_socket);
         exit (1);
     }
 
-    while(int bytes_recieved=recv(client_fd,buffer2,sizeof(buffer2),0)>0){
-        if(send(client_socket,buffer2,bytes_recieved,0)<0){
-             perror ("send");
-            close(client_fd);
-            exit (1);
-        }
-    }
+    int bytes_received;
+    char response_buffer[BUFFER_SIZE];
 
-    if(close(client_fd)<0){
-        perror("close");
+    do {
+        bzero(response_buffer, BUFFER_SIZE);
+        bytes_received = recv(remote_socket, response_buffer, BUFFER_SIZE, 0);
+        if (bytes_received < 0) {
+            perror("bad recv");
+        } else if (bytes_received > 0) {
+            int m = send(client_socket, response_buffer, bytes_received, 0);
+            if (m < 0) {
+                perror("bad send");
+            }
+        }
+
+    } while (bytes_received > 0);
+
+    // std::cout << response << std::endl;
+
+    if(close(remote_socket)<0){
+        fprintf(stderr, "close\n");
         exit(1);
     }
 }
@@ -366,6 +368,10 @@ std::string uri_decode(std::string uri) {
     std::string output = "";
 
     size_t n = uri.size();
+
+    if (n < 3) {
+        return uri;
+    }
 
     // whether or not this loop instance translated something
     bool translated = false;
