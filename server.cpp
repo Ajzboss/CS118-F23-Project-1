@@ -344,14 +344,15 @@ void proxy_remote_file(struct server_app *app, int client_socket, const std::str
         exit (1);
     }
 
-   while(int bytes_recieved=recv(client_fd,buffer2,sizeof(buffer2),0)>0){
-        if (send(client_fd,buffer2,bytes_recieved,0)< 0){
-            perror ("send");
+    while(int bytes_recieved=recv(client_fd,buffer2,sizeof(buffer2),0)>0){
+        if(send(client_socket,buffer2,bytes_recieved,0)<0){
+             perror ("send");
             close(client_fd);
             exit (1);
-          }
-   }
-    if (close(client_fd)<0){
+        }
+    }
+
+    if(close(client_fd)<0){
         perror("close");
         exit(1);
     }
