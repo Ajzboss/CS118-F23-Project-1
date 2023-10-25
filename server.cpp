@@ -310,63 +310,52 @@ void proxy_remote_file(struct server_app *app, int client_socket, const std::str
     // * When connection to the remote server fail, properly generate
     // HTTP 502 "Bad Gateway" response
     //std::cout<<"WBHFDOQHGFD)QO)\n";
-    const int PORT=DEFAULT_REMOTE_PORT;
+    
+    const int PORT= app->remote_port;
     int client_fd, new_socket;
-    const char *ipAddressStr = DEFAULT_REMOTE_HOST;
+    const char *ipAddressStr = app->remote_host;
     struct in_addr their_in_addr;
     struct sockaddr_in my_addr; /* my address */
     struct sockaddr_in their_addr; /* connector addr */ 
     int sin_size;
     char buffer[BUFFER_SIZE];
+    char buffer2[BUFFER_SIZE];
     strcpy(buffer, request.c_str());
-
 
     if ((client_fd = socket(PF_INET, SOCK_STREAM, 0)) == 0) {
         perror("socket failed");
         exit(EXIT_FAILURE);
     }
-    their_addr.sin_family = AF_INET; /* interp’d by host */
+
+    their_addr.sin_family = AF_INET; 
     their_addr.sin_port = htons(PORT);
     inet_aton(ipAddressStr,&their_in_addr);
     their_addr.sin_addr = their_in_addr;
+
     if(connect(client_fd, (struct sockaddr*) &their_addr, sizeof(struct sockaddr)) < 0) {
         perror ("connect");
         close(client_fd);
         exit (1);
     }
     
-    //std::cout<<"2\n";
-    if(send(client_fd,buffer,strlen(buffer),0)<0){
-        perror("write");
+    if(send(client_fd,buffer,sizeof(buffer),0)< 0){
+        perror ("send");
         close(client_fd);
-        exit(1);
+        exit (1);
     }
-    //std::cout<<"2\n";
-    if(recv(client_fd,buffer,strlen(buffer),MSG_PEEK)<0){
-        perror("read");
-        close(client_fd);
-        exit(1);
-    }
-    std::cout<<"buffer\n";
-    std::cout<<buffer;
-    std::string httpRequestString(buffer);
-    size_t newlinePos = httpRequestString.find("\r\n\r\n");
-    std::string body = httpRequestString.substr(newlinePos + 4);
-    std::cout<<"body\n";
-    std::cout<<body;
-    //strcpy(buffer,body.c_str());
-    char response[] = "HTTP/1.0 501 Not Implemented\r\n\r\n";
-    if(send(client_socket, buffer, strlen(buffer), 0)<0){
-        perror("send");
-        close(client_fd);
-        exit(1);
-    }
-    if(close(client_fd)<0){
+
+   while(int bytes_recieved=recv(client_fd,buffer2,sizeof(buffer2),0)>0){
+        if (send(client_fd,buffer2,bytes_recieved,0)< 0){
+            perror ("send");
+            close(client_fd);
+            exit (1);
+          }
+   }
+    if (close(client_fd)<0){
         perror("close");
         exit(1);
     }
 }
-
 /* Utilities */
 
 // Adapted from: https://gist.github.com/arthurafarias/56fec2cd49a32f374c02d1df2b6c350f
