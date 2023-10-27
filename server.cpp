@@ -26,7 +26,7 @@ namespace fs = std::filesystem;
 
 #define BUFFER_SIZE 1024
 #define DEFAULT_SERVER_PORT 8081
-#define DEFAULT_REMOTE_HOST "131.179.176.34"
+#define DEFAULT_REMOTE_HOST "233.179.176.35"
 #define DEFAULT_REMOTE_PORT 5001
 
 struct server_app {
@@ -177,7 +177,7 @@ void handle_request(struct server_app *app, int client_socket) {
     size_t i = 0, j = 0;
 
     // Extract the method
-    std::cout << request << std::endl;;
+    // std::cout << request << std::endl;;
     while (j < n && request[j] != ' ' && request[j] != '\r' && request[j] != '\n') {
         j++;
     }
@@ -310,7 +310,6 @@ void proxy_remote_file(struct server_app *app, int client_socket, const std::str
     // * When connection to the remote server fail, properly generate
     // HTTP 502 "Bad Gateway" response
     //std::cout<<"WBHFDOQHGFD)QO)\n";
-
     int remote_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (remote_socket == -1) {
         perror("socket failed");
@@ -320,13 +319,24 @@ void proxy_remote_file(struct server_app *app, int client_socket, const std::str
     struct sockaddr_in remote_server_addr;
 
     remote_server_addr.sin_family = AF_INET;
-    remote_server_addr.sin_addr.s_addr = inet_addr(app->remote_host);
+    inet_aton(app->remote_host, &remote_server_addr.sin_addr);
     remote_server_addr.sin_port = htons(app->remote_port);
 
     if(connect(remote_socket, (struct sockaddr*) &remote_server_addr, sizeof(remote_server_addr)) < 0) {
-        perror ("connect");
+        std::stringstream response_stream;
+        std::cout<<"Fail to connect";
+        response_stream << "HTTP/1.0 502 Bad Gateway\r\n";
+        response_stream << "Date: " << current_http_date() << "\r\n";
+        response_stream << "Content-Length: 0\r\n";
+        response_stream << "Connection: close\r\n";
+
+        std::string response = response_stream.str();
+
+        send(client_socket, response.c_str(), response.size(), 0);
+
+        perror("connect");
         close(remote_socket);
-        exit(1);
+        return;
     }
     
     if(send(remote_socket, request.c_str(), request.size(), 0)< 0){
@@ -352,13 +362,12 @@ void proxy_remote_file(struct server_app *app, int client_socket, const std::str
 
     } while (bytes_received > 0);
 
-    // std::cout << response << std::endl;
-
     if(close(remote_socket)<0){
         fprintf(stderr, "close\n");
         exit(1);
     }
 }
+
 /* Utilities */
 
 // Adapted from: https://gist.github.com/arthurafarias/56fec2cd49a32f374c02d1df2b6c350f

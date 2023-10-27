@@ -1,4 +1,4 @@
-CC=gcc
+CC=g++
 SRC=server.cpp
 OBJ=server
 CCFLAGS=-Wall --std=c++17
