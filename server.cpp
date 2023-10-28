@@ -20,6 +20,7 @@
 #include <sstream>
 #include <ctime>
 #include <regex>
+#include <iostream>
 
 namespace fs = std::filesystem;
 
@@ -28,8 +29,8 @@ namespace fs = std::filesystem;
 #define DEFAULT_REMOTE_HOST "131.179.176.34"
 #define DEFAULT_REMOTE_PORT 5001
 
+// Parameters of the server
 struct server_app {
-    // Parameters of the server
     // Local port of HTTP server
     uint16_t server_port;
 
@@ -39,13 +40,13 @@ struct server_app {
 };
 
 // The following function is implemented for you and doesn't need
-// to be change
+// to be changed
 void parse_args(int argc, char *argv[], struct server_app *app);
 
 // server functions
 void handle_request(struct server_app *app, int client_socket);
 void serve_local_file(int client_socket, std::string path);
-void proxy_remote_file(struct server_app *app, int client_socket, const char *path);
+void proxy_remote_file(struct server_app *app, int client_socket, const std::string request);
 
 // Utilities
 std::string uri_decode(std::string uri);
@@ -85,7 +86,7 @@ int main(int argc, char *argv[]) {
     int optval = 1;
     setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
 
-    if (bind(server_socket, (struct sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
+    if (bind(server_socket, (struct sockaddr*) &server_addr, sizeof(server_addr)) == -1) {
         perror("bind failed");
         exit(EXIT_FAILURE);
     }
@@ -95,10 +96,10 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    printf("Server listening on port %d\n", app.server_port);
+    std::cout << "Server listening on port " << app.server_port << std::endl;
 
-    while (1) {
-        client_socket = accept(server_socket, (struct sockaddr*)&client_addr, &client_len);
+    while (true) {
+        client_socket = accept(server_socket, (struct sockaddr*) &client_addr, &client_len);
         if (client_socket == -1) {
             perror("accept failed");
             continue;
@@ -133,7 +134,7 @@ void parse_args(int argc, char *argv[], struct server_app *app) {
             break;
         default: /* Unrecognized parameter or "-?" */
             fprintf(stderr, "Usage: server [-b local_port] [-r remote_host] [-p remote_port]\n");
-            exit(-1);
+            exit(EXIT_FAILURE);
             break;
         }
     }
@@ -162,8 +163,6 @@ void handle_request(struct server_app *app, int client_socket) {
 
     buffer[bytes_read] = '\0';
     // copy buffer to a new string
-    // char *request_cstr = (char *)malloc(strlen(buffer) + 1);
-    // strcpy(request_cstr, buffer);
     std::string request(buffer, strlen(buffer) + 1);
     const size_t n = request.size();
 
@@ -181,8 +180,8 @@ void handle_request(struct server_app *app, int client_socket) {
     }
     std::string method = request.substr(i, j - i);
 
+    // ignore non-GET requests
     if (method != "GET") {
-        // ignore non-GET requests
         return;
     }
 
@@ -198,13 +197,11 @@ void handle_request(struct server_app *app, int client_socket) {
         requested_path = "/index.html";
     }
 
-    // TODO: Implement proxy and call the function under condition
-    // specified in the spec
-    // if (need_proxy(...)) {
-    //    proxy_remote_file(app, client_socket, file_name);
-    // } else {
-    serve_local_file(client_socket, requested_path);
-    //}
+    if (requested_path.length() >= 3 && requested_path.substr(requested_path.length() - 3, 3) == ".ts") {
+        proxy_remote_file(app, client_socket, request);
+    } else {
+        serve_local_file(client_socket, requested_path);
+    }
 }
 
 void serve_local_file(int client_socket, std::string path) {
@@ -227,6 +224,7 @@ void serve_local_file(int client_socket, std::string path) {
         }
     }
 
+    // open the file and serve it with 200 OK if openable
     if (file_found) {
         std::ifstream file(path);
 
@@ -245,6 +243,7 @@ void serve_local_file(int client_socket, std::string path) {
             // reference: https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Common_types
             filetype ftype = determine_filetype(path);
             std::string content_type;
+
             switch (ftype) {
                 case ft_html:
                     content_type = "text/html; charset=UTF-8";
@@ -287,25 +286,71 @@ void serve_local_file(int client_socket, std::string path) {
         fprintf(stderr, "Requested nonexistent file %s\n", path.c_str());
     }
 
-    // convert to string
+    // convert to string and send to client
     std::string response = response_stream.str();
-    size_t size = response.size();
-
-    send(client_socket, response.c_str(), size, 0);
+    send(client_socket, response.c_str(), response.size(), 0);
 }
 
-void proxy_remote_file(struct server_app *app, int client_socket, const char *request) {
-    // TODO: Implement proxy request and replace the following code
-    // What's needed:
-    // * Connect to remote server (app->remote_server/app->remote_port)
-    // * Forward the original request to the remote server
-    // * Pass the response from remote server back
-    // Bonus:
-    // * When connection to the remote server fail, properly generate
-    // HTTP 502 "Bad Gateway" response
+void proxy_remote_file(struct server_app *app, int client_socket, const std::string request) {
+    // Create the remote socket
+    int remote_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if (remote_socket == -1) {
+        perror("socket failed");
+        exit(EXIT_FAILURE);
+    }
 
-    char response[] = "HTTP/1.0 501 Not Implemented\r\n\r\n";
-    send(client_socket, response, strlen(response), 0);
+    // Try to connect to the remote host
+    struct sockaddr_in remote_server_addr;
+    remote_server_addr.sin_family = AF_INET;
+    inet_aton(app->remote_host, &remote_server_addr.sin_addr);
+    remote_server_addr.sin_port = htons(app->remote_port);
+
+    if(connect(remote_socket, (struct sockaddr*) &remote_server_addr, sizeof(remote_server_addr)) < 0) {
+        // Send 502 Bad Gateway if connection failed
+        std::cout << "Fail to connect" << std::endl;
+
+        std::stringstream response_stream;
+        response_stream << "HTTP/1.0 502 Bad Gateway\r\n";
+        response_stream << "Date: " << current_http_date() << "\r\n";
+        response_stream << "Content-Length: 0\r\n";
+        response_stream << "Connection: close\r\n";
+
+        std::string response = response_stream.str();
+
+        send(client_socket, response.c_str(), response.size(), 0);
+
+        perror("connect");
+        close(remote_socket);
+        return;
+    }
+    
+    if(send(remote_socket, request.c_str(), request.size(), 0) < 0){
+        perror("forward request");
+        close(remote_socket);
+        exit(EXIT_FAILURE);
+    }
+
+    int bytes_received;
+    char response_buffer[BUFFER_SIZE];
+
+    do {
+        // zero out the buffer before receiving the next bytes
+        bzero(response_buffer, BUFFER_SIZE);
+        bytes_received = recv(remote_socket, response_buffer, BUFFER_SIZE, 0);
+        if (bytes_received < 0) {
+            perror("recv");
+        } else if (bytes_received > 0) {
+            int m = send(client_socket, response_buffer, bytes_received, 0);
+            if (m < 0) {
+                perror("forward response");
+            }
+        }
+    } while (bytes_received > 0);
+
+    if(close(remote_socket) < 0){
+        perror("close");
+        exit(EXIT_FAILURE);
+    }
 }
 
 /* Utilities */
@@ -317,6 +362,10 @@ std::string uri_decode(std::string uri) {
     std::string output = "";
 
     size_t n = uri.size();
+
+    if (n < 3) {
+        return uri;
+    }
 
     // whether or not this loop instance translated something
     bool translated = false;
@@ -335,6 +384,8 @@ std::string uri_decode(std::string uri) {
         }
     }
 
+    // if nothing translated on the final loop instance
+    // appendd the last 2 chars of uri to the output
     if (!translated) {
         output += uri.substr(n - 2);
     }
